@@ -1,61 +1,103 @@
-(function () {
-  // Point directly to your Vercel API endpoint
-  const API = 'https://chat-bot-inky-sigma.vercel.app/api/chat';
+export const config = { runtime: 'edge' };
 
-  // Create root container
-  const root = document.createElement('div');
-  root.id = 'ai-chat-root';
-  root.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:999999;';
+// --- CORS ---
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
-  // Panel markup
-  root.innerHTML = [
-    '<button id="ai-open" style="padding:12px 16px;border-radius:9999px;border:0;box-shadow:0 6px 18px rgba(0,0,0,.25)">Chat</button>',
-    '<div id="ai-panel" style="display:none;width:340px;height:460px;background:#fff;border-radius:16px;box-shadow:0 12px 24px rgba(0,0,0,.25);overflow:hidden;margin-top:8px;">',
-    '  <div style="padding:12px;font-weight:600;border-bottom:1px solid #eee">Assistant</div>',
-    '  <div id="ai-log" style="height:330px;padding:12px;overflow:auto;font-size:14px;"></div>',
-    '  <div style="display:flex;border-top:1px solid #eee">',
-    '    <input id="ai-input" placeholder="Ask about products, shipping…" style="flex:1;padding:10px;border:0">',
-    '    <button id="ai-send" style="padding:10px 14px;border:0">Send</button>',
-    '  </div>',
-    '</div>'
-  ].join('');
+const SYSTEM = `You are a helpful Shopify sales assistant.
+- Be concise and friendly.
+- Provide links to products when possible.
+- Use store policies.
+- Escalate to human if asked about order issues.`;
 
-  document.body.appendChild(root);
+async function searchProducts(shopDomain, token, q){
+  const url = `https://${shopDomain}/api/2024-07/graphql.json`;
+  const query = `#graphql
+    query ($q:String!){
+      products(first:5, query:$q){
+        edges{ node{ title handle onlineStoreUrl } }
+      }
+    }`;
+  const r = await fetch(url,{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'X-Shopify-Storefront-Access-Token': token
+    },
+    body: JSON.stringify({ query, variables:{ q } })
+  });
+  const j = await r.json();
+  return (j?.data?.products?.edges||[]).map(e=>e.node);
+}
 
-  // Elements
-  const openBtn = root.querySelector('#ai-open');
-  const panel   = root.querySelector('#ai-panel');
-  const log     = root.querySelector('#ai-log');
-  const input   = root.querySelector('#ai-input');
-  const send    = root.querySelector('#ai-send');
-
-  function add(role, text) {
-    const el = document.createElement('div');
-    el.style.margin = '6px 0';
-    el.innerHTML = '<strong>' + role + ':</strong> ' + (text || '');
-    log.appendChild(el);
-    log.scrollTop = log.scrollHeight;
-  }
-
-  openBtn.onclick = () => {
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-  };
-
-  send.onclick = async () => {
-    const msg = (input.value || '').trim();
-    if (!msg) return;
-    add('You', msg);
-    input.value = '';
-    try {
-      const res = await fetch(API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      });
-      const data = await res.json();
-      add('Assistant', data && data.reply ? data.reply : '(No reply)');
-    } catch (e) {
-      add('Assistant', '(Network error)');
+export default async function handler(req){
+  try{
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS });
     }
-  };
-})();
+
+    if (req.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405, headers: CORS });
+    }
+
+    const { message, history = [], policies = {} } = await req.json();
+
+    const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;   // recommend: easycartglobal.myshopify.com
+    const token = process.env.SHOPIFY_STOREFRONT_TOKEN;
+    const model = process.env.AI_MODEL || 'gpt-4o-mini';
+    const text = String(message||'').slice(0, 2000);
+
+    const products = text ? await searchProducts(shopDomain, token, text) : [];
+
+    const policyText = `Shipping: ${policies.shipping||'3–7 business days in Canada; USA selected items.'}
+Returns: ${policies.returns||'30 days from delivery, unused/undamaged.'}
+Regions: ${policies.regions||'Canada + limited USA items.'}
+Contact: ${policies.contact||'Live agent 9am–6pm ET.'}`;
+
+    const toolCtx = products.length
+      ? `Matched products:\n${products.map(p=>`• ${p.title} — https://${shopDomain}/products/${p.handle}`).join('\n')}`
+      : 'No product matches.';
+
+    const payload = {
+      model,
+      messages: [
+        { role: 'system', content: SYSTEM + "\nPolicies:\n" + policyText },
+        ...history,
+        { role: 'user', content: `${text}\n\n${toolCtx}` }
+      ],
+      temperature: 0.3
+    };
+
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!aiRes.ok) {
+      const detail = await aiRes.text();
+      return new Response(JSON.stringify({ error: 'OpenAI error', detail }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    }
+
+    const data = await aiRes.json();
+    const reply = data.choices?.[0]?.message?.content || 'Sorry, I could not generate a reply.';
+
+    return new Response(JSON.stringify({ reply, products }), {
+      status: 200,
+      headers: { ...CORS, 'Content-Type': 'application/json' }
+    });
+
+  } catch (e) {
+    return new Response(JSON.stringify({ error:'Server error', detail:String(e) }), {
+      status: 500,
+      headers: { ...CORS, 'Content-Type': 'application/json' }
+    });
+  }
+}
