@@ -1,5 +1,6 @@
 (function(){
-  const API = 'https://chat-bot-inky-sigma.vercel.app/api/chat';
+ (function(){
+  const API = 'https://chat-bot-inky-sigma.vercel.app/api/chat';  // ✅ use full Vercel URL
   const root = document.createElement('div');
   root.id = 'ai-chat-root';
   root.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:999999;';
