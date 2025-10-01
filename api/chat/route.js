@@ -1,5 +1,44 @@
 export const config = { runtime: 'edge' };
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
+
+export default async function handler(req) {
+  // 1) Always handle preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
+  // 2) Optional: allow GET for health checks
+  if (req.method === 'GET') {
+    return new Response('OK', { status: 200, headers: CORS });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: CORS });
+  }
+
+  try {
+    const { message, history = [], policies = {} } = await req.json();
+
+    // … (rest of your existing code) …
+
+    return new Response(JSON.stringify({ reply, products }), {
+      status: 200,
+      headers: { ...CORS, 'Content-Type': 'application/json' }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Server error', detail: String(e) }), {
+      status: 500,
+      headers: { ...CORS, 'Content-Type': 'application/json' }
+    });
+  }
+}
+export const config = { runtime: 'edge' };
+
 const SYSTEM = `You are a helpful Shopify sales assistant.
 - Be concise and friendly.
 - Provide links to products when possible.
