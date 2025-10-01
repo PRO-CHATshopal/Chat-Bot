@@ -1,13 +1,12 @@
 export const config = { runtime: 'edge' };
 
-// --- CORS (for all responses) ---
+// CORS for every response
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
 
-// --- Helper: Shopify product search ---
 async function searchProducts(shopDomain, token, q) {
   const url = `https://${shopDomain}/api/2024-07/graphql.json`;
   const query = `#graphql
@@ -29,15 +28,14 @@ async function searchProducts(shopDomain, token, q) {
 }
 
 export default async function handler(req) {
-  // 1) CORS preflight
+  // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
-  // 2) Simple GET health check (handy for testing)
+  // Health check
   if (req.method === 'GET') {
     return new Response('OK', { status: 200, headers: CORS });
   }
-  // 3) Only POST for chat
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405, headers: CORS });
   }
@@ -45,14 +43,12 @@ export default async function handler(req) {
   try {
     const { message, history = [], policies = {} } = await req.json();
 
+    // TIP: set SHOPIFY_STORE_DOMAIN in Vercel to your .myshopify.com domain
     const shopDomain = process.env.SHOPIFY_STORE_DOMAIN || '';
     const token = process.env.SHOPIFY_STOREFRONT_TOKEN || '';
     const model = process.env.AI_MODEL || 'gpt-4o-mini';
 
     const text = String(message || '').slice(0, 2000);
-
-    // Optional: use .myshopify.com for reliability
-    // e.g., set SHOPIFY_STORE_DOMAIN=easycartglobal.myshopify.com in Vercel
     const products = text ? await searchProducts(shopDomain, token, text) : [];
 
     const system = `You are a helpful Shopify sales assistant.
@@ -62,7 +58,7 @@ export default async function handler(req) {
 - For order-specific issues, offer human handoff.`;
 
     const policyText =
-      `Shipping: ${policies.shipping || '3–7 business days in Canada; selected items in USA.'}\n` +
+      `Shipping: ${policies.shipping || '3–7 business days in Canada; selected USA items.'}\n` +
       `Returns: ${policies.returns || '30 days from delivery; unused/undamaged.'}\n` +
       `Regions: ${policies.regions || 'Canada + limited USA items.'}\n` +
       `Contact: ${policies.contact || 'Live agent 9am–6pm ET.'}`;
