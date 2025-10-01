@@ -1,12 +1,21 @@
 export const config = { runtime: 'edge' };
 
-// CORS for every response
+// CORS headers for every response
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
 
+// helper: parse body safely for text/plain or JSON
+async function readBody(req) {
+  const ct = (req.headers.get('content-type') || '').toLowerCase();
+  if (ct.includes('application/json')) return await req.json();
+  const txt = await req.text();
+  try { return JSON.parse(txt || '{}'); } catch { return {}; }
+}
+
+// Shopify product search
 async function searchProducts(shopDomain, token, q) {
   const url = `https://${shopDomain}/api/2024-07/graphql.json`;
   const query = `#graphql
@@ -28,7 +37,7 @@ async function searchProducts(shopDomain, token, q) {
 }
 
 export default async function handler(req) {
-  // CORS preflight
+  // Handle preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
@@ -41,9 +50,8 @@ export default async function handler(req) {
   }
 
   try {
-    const { message, history = [], policies = {} } = await req.json();
+    const { message, history = [], policies = {} } = await readBody(req);
 
-    // TIP: set SHOPIFY_STORE_DOMAIN in Vercel to your .myshopify.com domain
     const shopDomain = process.env.SHOPIFY_STORE_DOMAIN || '';
     const token = process.env.SHOPIFY_STOREFRONT_TOKEN || '';
     const model = process.env.AI_MODEL || 'gpt-4o-mini';
@@ -51,7 +59,7 @@ export default async function handler(req) {
     const text = String(message || '').slice(0, 2000);
     const products = text ? await searchProducts(shopDomain, token, text) : [];
 
-    const system = `You are a helpful Shopify sales assistant.
+    const system = `You are a helpful Shopify sales assistant named Shopal.
 - Be concise and friendly.
 - Provide links to products when possible.
 - Use only the store policies provided.
