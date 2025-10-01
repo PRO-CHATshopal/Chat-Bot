@@ -1,7 +1,17 @@
 {
   "version": 2,
   "routes": [
-    { "src": "/api/chat", "dest": "/api/chat/route.js" },
+    { "src": "/api/chat", "methods": ["GET", "POST", "OPTIONS"], "dest": "/api/chat/route.js" },
     { "src": "/widget.js", "dest": "/public/widget.js" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    }
   ]
 }
