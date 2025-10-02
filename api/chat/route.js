@@ -61,7 +61,7 @@ export default async function handler(req) {
 
     const system = `You are a helpful Shopify sales assistant named Shopal.
 - Be concise and friendly.
-- Provide links to products when possible.
+- When referencing products, ONLY use Markdown links like [Title](/products/{handle}). Never show raw URLs.
 - Use only the store policies provided.
 - For order-specific issues, offer human handoff.`;
 
@@ -71,8 +71,11 @@ export default async function handler(req) {
       `Regions: ${policies.regions || 'Canada + limited USA items.'}\n` +
       `Contact: ${policies.contact || 'Live agent 9am–6pm ET.'}`;
 
+    // 🔻 Product context: titles as Markdown links, no raw URL text
     const toolCtx = products.length
-      ? `Matched products:\n${products.map(p => `• ${p.title} — https://${shopDomain}/products/${p.handle}`).join('\n')}`
+      ? `Matched products:\n${products
+          .map(p => `• [${p.title}](/products/${p.handle})`)
+          .join('\n')}`
       : 'No product matches.';
 
     const payload = {
